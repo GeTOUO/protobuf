@@ -18,7 +18,7 @@ use Google\Protobuf\Internal\CodedOutputStream;
  * Please note, this test is only intended to be run without the protobuf C
  * extension.
  */
-class ImplementationTest extends TestBase
+class PhpImplementationTest extends TestBase
 {
     /**
      * Avoid calling setUp, which has void return type (not avalialbe in php7.0).
@@ -275,13 +275,13 @@ class ImplementationTest extends TestBase
             $this->assertSame(0x7FFFFFFE, GPBWire::zigZagEncode64(0x3FFFFFFF));
             $this->assertSame(
                 0x7FFFFFFF,
-                GPBWire::zigZagEncode64(0xFFFFFFFFC0000000));
+                GPBWire::zigZagEncode64(-1073741824));  // 0xFFFFFFFFC0000000
             $this->assertSame(
                 0xFFFFFFFE,
                 GPBWire::zigZagEncode64(0x7FFFFFFF));
             $this->assertSame(
                 0xFFFFFFFF,
-                GPBWire::zigZagEncode64(0xFFFFFFFF80000000));
+                GPBWire::zigZagEncode64(-2147483648));  // 0xFFFFFFFF80000000
             $this->assertSame(
                 -2,  // 0xFFFFFFFFFFFFFFFE
                 GPBWire::zigZagEncode64(0x7FFFFFFFFFFFFFFF));

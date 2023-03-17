@@ -577,6 +577,14 @@ class ArrayTest extends TestBase
 
     public function testCycleLeak()
     {
+        if (getenv("USE_ZEND_ALLOC") === "0") {
+            // If we are disabling Zend's internal allocator (as we do for
+            // Valgrind tests, for example) then memory_get_usage() will not
+            // return a useful value.
+            $this->markTestSkipped();
+            return;
+        }
+
         gc_collect_cycles();
         $arr = new RepeatedField(GPBType::MESSAGE, TestMessage::class);
         $arr[] = new TestMessage;
@@ -592,6 +600,17 @@ class ArrayTest extends TestBase
 
         $end = memory_get_usage();
         $this->assertLessThan($start, $end);
+    }
+
+    #########################################################
+    # Test incorrect types
+    #########################################################
+
+    public function testAppendNull()
+    {
+        $this->expectException(TypeError::class);
+        $arr = new RepeatedField(GPBType::MESSAGE, TestMessage::class);
+        $arr[] = null;
     }
 
     #########################################################
@@ -623,5 +642,44 @@ class ArrayTest extends TestBase
         $this->assertFalse(
             new RepeatedField(GPBType::MESSAGE, TestMessage::class) ==
             new RepeatedField(GPBType::MESSAGE, Sub::class));
+    }
+
+    #########################################################
+    # Test clone
+    #########################################################
+
+    public function testClone()
+    {
+        $arr = new RepeatedField(GPBType::MESSAGE, TestMessage::class);
+        $arr[] = new TestMessage;
+        $arr2 = clone $arr;
+        $this->assertSame($arr[0], $arr2[0]);
+    }
+
+    #########################################################
+    # Test offsetUnset
+    #########################################################
+
+    public function testOffsetUnset()
+    {
+        $arr = new RepeatedField(GPBType::INT32);
+        $arr[] = 0;
+        $arr[] = 1;
+        $arr[] = 2;
+
+        $this->assertSame(3, count($arr));
+        $this->assertSame(0, $arr[0]);
+        $this->assertSame(1, $arr[1]);
+        $this->assertSame(2, $arr[2]);
+
+        $arr->offsetUnset(1);
+        $this->assertSame(0, $arr[0]);
+        $this->assertSame(2, $arr[1]);
+
+        $arr->offsetUnset(0);
+        $this->assertSame(2, $arr[0]);
+
+        $arr->offsetUnset(0);
+        $this->assertCount(0, $arr);
     }
 }

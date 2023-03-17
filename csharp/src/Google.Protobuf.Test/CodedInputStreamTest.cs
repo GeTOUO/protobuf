@@ -161,11 +161,20 @@ namespace Google.Protobuf
 
         private static void AssertReadFromParseContext(ReadOnlySequence<byte> input, ParseContextAssertAction assertAction, bool assertIsAtEnd)
         {
+            // Check as ReadOnlySequence<byte>
             ParseContext.Initialize(input, out ParseContext parseCtx);
             assertAction(ref parseCtx);
             if (assertIsAtEnd)
             {
                 Assert.IsTrue(SegmentedBufferHelper.IsAtEnd(ref parseCtx.buffer, ref parseCtx.state));
+            }
+
+            // Check as ReadOnlySpan<byte>
+            ParseContext.Initialize(input.ToArray().AsSpan(), out ParseContext spanParseContext);
+            assertAction(ref spanParseContext);
+            if (assertIsAtEnd)
+            {
+                Assert.IsTrue(SegmentedBufferHelper.IsAtEnd(ref spanParseContext.buffer, ref spanParseContext.state));
             }
         }
 
@@ -554,8 +563,8 @@ namespace Google.Protobuf
             int groupFieldNumber = Proto2.TestAllTypes.OptionalGroupFieldNumber;
 
             // write Proto2.TestAllTypes with "optional_group" set, but use wrong EndGroup closing tag
-            MemoryStream ms = new MemoryStream();
-            CodedOutputStream output = new CodedOutputStream(ms);
+            var ms = new MemoryStream();
+            var output = new CodedOutputStream(ms);
             output.WriteTag(WireFormat.MakeTag(groupFieldNumber, WireFormat.WireType.StartGroup));
             output.WriteGroup(new Proto2.TestAllTypes.Types.OptionalGroup { A = 12345 });
             // end group with different field number
@@ -569,8 +578,8 @@ namespace Google.Protobuf
         [Test]
         public void ReadGroup_UnknownFields_WrongEndGroupTag()
         {
-            MemoryStream ms = new MemoryStream();
-            CodedOutputStream output = new CodedOutputStream(ms);
+            var ms = new MemoryStream();
+            var output = new CodedOutputStream(ms);
             output.WriteTag(WireFormat.MakeTag(14, WireFormat.WireType.StartGroup));
             // end group with different field number
             output.WriteTag(WireFormat.MakeTag(15, WireFormat.WireType.EndGroup));
@@ -645,7 +654,7 @@ namespace Google.Protobuf
             output.Flush();
             ms.Position = 0;
 
-            CodedInputStream input = new CodedInputStream(ms);
+            var input = new CodedInputStream(ms);
 
             Assert.AreEqual(tag, input.ReadTag());
             Assert.Throws<InvalidProtocolBufferException>(() => input.ReadBytes());
@@ -685,26 +694,43 @@ namespace Google.Protobuf
         [Test]
         public void TestSlowPathAvoidance()
         {
-            using (var ms = new MemoryStream())
-            {
-                CodedOutputStream output = new CodedOutputStream(ms);
-                output.WriteTag(1, WireFormat.WireType.LengthDelimited);
-                output.WriteBytes(ByteString.CopyFrom(new byte[100]));
-                output.WriteTag(2, WireFormat.WireType.LengthDelimited);
-                output.WriteBytes(ByteString.CopyFrom(new byte[100]));
-                output.Flush();
+            using var ms = new MemoryStream();
+            var output = new CodedOutputStream(ms);
+            output.WriteTag(1, WireFormat.WireType.LengthDelimited);
+            output.WriteBytes(ByteString.CopyFrom(new byte[100]));
+            output.WriteTag(2, WireFormat.WireType.LengthDelimited);
+            output.WriteBytes(ByteString.CopyFrom(new byte[100]));
+            output.Flush();
 
-                ms.Position = 0;
-                CodedInputStream input = new CodedInputStream(ms, new byte[ms.Length / 2], 0, 0, false);
+            ms.Position = 0;
+            CodedInputStream input = new CodedInputStream(ms, new byte[ms.Length / 2], 0, 0, false);
 
-                uint tag = input.ReadTag();
-                Assert.AreEqual(1, WireFormat.GetTagFieldNumber(tag));
-                Assert.AreEqual(100, input.ReadBytes().Length);
+            uint tag = input.ReadTag();
+            Assert.AreEqual(1, WireFormat.GetTagFieldNumber(tag));
+            Assert.AreEqual(100, input.ReadBytes().Length);
 
-                tag = input.ReadTag();
-                Assert.AreEqual(2, WireFormat.GetTagFieldNumber(tag));
-                Assert.AreEqual(100, input.ReadBytes().Length);
-            }
+            tag = input.ReadTag();
+            Assert.AreEqual(2, WireFormat.GetTagFieldNumber(tag));
+            Assert.AreEqual(100, input.ReadBytes().Length);
+        }
+
+        [Test]
+        public void MaximumFieldNumber()
+        {
+            MemoryStream ms = new MemoryStream();
+            CodedOutputStream output = new CodedOutputStream(ms);
+
+            int fieldNumber = 0x1FFFFFFF;
+            uint tag = WireFormat.MakeTag(fieldNumber, WireFormat.WireType.LengthDelimited);
+            output.WriteRawVarint32(tag);
+            output.WriteString("field 1");
+            output.Flush();
+            ms.Position = 0;
+
+            CodedInputStream input = new CodedInputStream(ms);
+
+            Assert.AreEqual(tag, input.ReadTag());
+            Assert.AreEqual(fieldNumber, WireFormat.GetTagFieldNumber(tag));
         }
 
         [Test]
@@ -899,13 +925,11 @@ namespace Google.Protobuf
         {
             byte[] serializedMessage = GenerateBigSerializedMessage();
             // How many of these big messages do we need to take us near our 2GB limit?
-            int count = Int32.MaxValue / serializedMessage.Length;
+            int count = int.MaxValue / serializedMessage.Length;
             // Now make a MemoryStream that will fake a near-2GB stream of messages by returning
             // our big serialized message 'count' times.
-            using (RepeatingMemoryStream stream = new RepeatingMemoryStream(serializedMessage, count))
-            {
-                Assert.DoesNotThrow(()=>TestAllTypes.Parser.ParseFrom(stream));
-            }
+            using var stream = new RepeatingMemoryStream(serializedMessage, count);
+            Assert.DoesNotThrow(() => TestAllTypes.Parser.ParseFrom(stream));
         }
 
         [Test]
@@ -913,17 +937,15 @@ namespace Google.Protobuf
         {
             byte[] serializedMessage = GenerateBigSerializedMessage();
             // How many of these big messages do we need to take us near our 2GB limit?
-            int count = Int32.MaxValue / serializedMessage.Length;
+            int count = int.MaxValue / serializedMessage.Length;
             // Now add one to take us over the 2GB limit
             count++;
             // Now make a MemoryStream that will fake a near-2GB stream of messages by returning
             // our big serialized message 'count' times.
-            using (RepeatingMemoryStream stream = new RepeatingMemoryStream(serializedMessage, count))
-            {
-                Assert.Throws<InvalidProtocolBufferException>(() => TestAllTypes.Parser.ParseFrom(stream),
-                    "Protocol message was too large.  May be malicious.  " +
-                    "Use CodedInputStream.SetSizeLimit() to increase the size limit.");
-            }
+            using var stream = new RepeatingMemoryStream(serializedMessage, count);
+            Assert.Throws<InvalidProtocolBufferException>(() => TestAllTypes.Parser.ParseFrom(stream),
+                "Protocol message was too large.  May be malicious.  " +
+                "Use CodedInputStream.SetSizeLimit() to increase the size limit.");
         }
 
         /// <returns>A serialized big message</returns>

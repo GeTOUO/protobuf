@@ -5,6 +5,7 @@ require_once('test_util.php');
 
 use Google\Protobuf\RepeatedField;
 use Google\Protobuf\GPBType;
+use Foo\EmptyAnySerialization;
 use Foo\TestInt32Value;
 use Foo\TestInt64Value;
 use Foo\TestUInt32Value;
@@ -14,6 +15,7 @@ use Foo\TestStringValue;
 use Foo\TestBytesValue;
 use Foo\TestAny;
 use Foo\TestEnum;
+use Foo\TestLargeFieldNumber;
 use Foo\TestMessage;
 use Foo\TestMessage\Sub;
 use Foo\TestPackedMessage;
@@ -42,6 +44,21 @@ class EncodeDecodeTest extends TestBase
         $m = new TestMessage();
         $m->mergeFromJsonString("{\"optionalInt32\":1}");
         $this->assertEquals(1, $m->getOptionalInt32());
+    }
+
+    public function testDecodeJsonUnknown()
+    {
+        $this->expectException(Exception::class);
+
+        $m = new TestMessage();
+        $m->mergeFromJsonString("{\"unknown\":1}");
+    }
+
+    public function testDecodeJsonIgnoreUnknown()
+    {
+        $m = new TestMessage();
+        $m->mergeFromJsonString("{\"unknown\":1}", true);
+        $this->assertEquals("{}", $m->serializeToJsonString());
     }
 
     public function testDecodeTopLevelBoolValue()
@@ -529,6 +546,15 @@ class EncodeDecodeTest extends TestBase
         $this->assertSame("", $data);
     }
 
+    public function testLargeFieldNumber()
+    {
+        $m = new TestLargeFieldNumber(['large_field_number' => 5]);
+        $data = $m->serializeToString();
+        $m2 = new TestLargeFieldNumber();
+        $m2->mergeFromString($data);
+        $this->assertSame(5, $m2->getLargeFieldNumber());
+    }
+
     public function testDecodeInvalidInt32()
     {
         $this->expectException(Exception::class);
@@ -671,6 +697,16 @@ class EncodeDecodeTest extends TestBase
 
         $m = new TestMessage();
         $m->mergeFromString(hex2bin('7A01'));
+    }
+
+    public function testEncodeDecodeValidUtf8()
+    {
+        $m = new TestMessage();
+        $m->mergeFromJsonString("{\"optionalString\":\"\\u1000\"}");
+        $serialized = $m->serializeToString();
+        $m2 = new TestMessage();
+        $m2->mergeFromString($serialized);
+        $this->assertSame($m->getOptionalString(), $m2->getOptionalString());
     }
 
     public function testDecodeInvalidEnum()
@@ -913,6 +949,14 @@ class EncodeDecodeTest extends TestBase
         $to = new TestMessage();
         $to->mergeFromJsonString($data);
         $this->expectFields($to);
+    }
+
+    public function testJsonEncodeNullSubMessage()
+    {
+        $from = new TestMessage();
+        $from->setOptionalMessage(null);
+        $data = $from->serializeToJsonString();
+        $this->assertEquals("{}", $data);
     }
 
     public function testDecodeDuration()
@@ -1469,5 +1513,23 @@ class EncodeDecodeTest extends TestBase
             [TestInt32Value::class, 1, "1", 0, "0"],
             [TestStringValue::class, "a", "\"a\"", "", "\"\""],
         ];
+    }
+
+    public function testEmptyAnySerialization()
+    {
+        $m = new EmptyAnySerialization();
+
+        $any = new Any();
+        $any->pack($m);
+
+        $data = $any->serializeToJsonString();
+        $this->assertEquals('{"@type":"type.googleapis.com/foo.EmptyAnySerialization"}', $data);
+
+        $any = new Any();
+        $any->mergeFromJsonString($data);
+
+        $m = $any->unpack();
+        $this->assertInstanceOf(EmptyAnySerialization::class, $m);
+        $this->assertEquals('', $m->getA());
     }
 }

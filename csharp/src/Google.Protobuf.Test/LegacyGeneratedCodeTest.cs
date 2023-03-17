@@ -29,14 +29,12 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endregion
-using Google.Protobuf;
-using Google.Protobuf.Reflection;
+
 using System.Buffers;
-using pb = global::Google.Protobuf;
-using pbr = global::Google.Protobuf.Reflection;
+using pb = Google.Protobuf;
+using pbr = Google.Protobuf.Reflection;
 using NUnit.Framework;
 using System.IO;
-using System;
 using Google.Protobuf.Buffers;
 
 namespace Google.Protobuf
@@ -141,7 +139,7 @@ namespace Google.Protobuf
             };
             var exception = Assert.Throws<InvalidProtocolBufferException>(() =>
             {
-                WriteContext.Initialize(new ArrayBufferWriter<byte>(), out WriteContext writeCtx);
+                WriteContext.Initialize(new TestArrayBufferWriter<byte>(), out WriteContext writeCtx);
                 ((IBufferMessage)message).InternalWriteTo(ref writeCtx);
             });
             Assert.AreEqual($"Message {typeof(LegacyGeneratedCodeMessageA).Name} doesn't provide the generated method that enables WriteContext-based serialization. You might need to regenerate the generated protobuf code.", exception.Message);

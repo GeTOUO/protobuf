@@ -28,17 +28,20 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
+#include "google/protobuf/compiler/ruby/ruby_generator.h"
+
 #include <iomanip>
+#include <memory>
 #include <sstream>
 
-#include <google/protobuf/compiler/code_generator.h>
-#include <google/protobuf/compiler/plugin.h>
-#include <google/protobuf/descriptor.h>
-#include <google/protobuf/descriptor.pb.h>
-#include <google/protobuf/io/printer.h>
-#include <google/protobuf/io/zero_copy_stream.h>
-
-#include <google/protobuf/compiler/ruby/ruby_generator.h>
+#include "google/protobuf/compiler/code_generator.h"
+#include "absl/log/absl_log.h"
+#include "google/protobuf/compiler/plugin.h"
+#include "google/protobuf/descriptor.h"
+#include "google/protobuf/descriptor.pb.h"
+#include "google/protobuf/descriptor_legacy.h"
+#include "google/protobuf/io/printer.h"
+#include "google/protobuf/io/zero_copy_stream.h"
 
 namespace google {
 namespace protobuf {
@@ -48,15 +51,15 @@ namespace ruby {
 // Forward decls.
 template <class numeric_type>
 std::string NumberToString(numeric_type value);
-std::string GetRequireName(const std::string& proto_file);
+std::string GetRequireName(absl::string_view proto_file);
 std::string LabelForField(FieldDescriptor* field);
 std::string TypeName(FieldDescriptor* field);
 bool GenerateMessage(const Descriptor* message, io::Printer* printer,
                      std::string* error);
 void GenerateEnum(const EnumDescriptor* en, io::Printer* printer);
-void GenerateMessageAssignment(const std::string& prefix,
+void GenerateMessageAssignment(absl::string_view prefix,
                                const Descriptor* message, io::Printer* printer);
-void GenerateEnumAssignment(const std::string& prefix, const EnumDescriptor* en,
+void GenerateEnumAssignment(absl::string_view prefix, const EnumDescriptor* en,
                             io::Printer* printer);
 std::string DefaultValueForField(const FieldDescriptor* field);
 
@@ -67,18 +70,18 @@ std::string NumberToString(numeric_type value) {
   return os.str();
 }
 
-std::string GetRequireName(const std::string& proto_file) {
-  int lastindex = proto_file.find_last_of(".");
-  return proto_file.substr(0, lastindex) + "_pb";
+std::string GetRequireName(absl::string_view proto_file) {
+  size_t lastindex = proto_file.find_last_of('.');
+  return absl::StrCat(proto_file.substr(0, lastindex), "_pb");
 }
 
-std::string GetOutputFilename(const std::string& proto_file) {
-  return GetRequireName(proto_file) + ".rb";
+std::string GetOutputFilename(absl::string_view proto_file) {
+  return absl::StrCat(GetRequireName(proto_file), ".rb");
 }
 
 std::string LabelForField(const FieldDescriptor* field) {
-  if (field->has_optional_keyword() &&
-      field->file()->syntax() == FileDescriptor::SYNTAX_PROTO3) {
+  if (FieldDescriptorLegacy(field).has_optional_keyword() &&
+      field->containing_oneof() != nullptr) {
     return "proto3_optional";
   }
   switch (field->label()) {
@@ -113,16 +116,16 @@ std::string TypeName(const FieldDescriptor* field) {
   }
 }
 
-std::string StringifySyntax(FileDescriptor::Syntax syntax) {
+std::string StringifySyntax(FileDescriptorLegacy::Syntax syntax) {
   switch (syntax) {
-    case FileDescriptor::SYNTAX_PROTO2:
+    case FileDescriptorLegacy::Syntax::SYNTAX_PROTO2:
       return "proto2";
-    case FileDescriptor::SYNTAX_PROTO3:
+    case FileDescriptorLegacy::Syntax::SYNTAX_PROTO3:
       return "proto3";
-    case FileDescriptor::SYNTAX_UNKNOWN:
+    case FileDescriptorLegacy::Syntax::SYNTAX_UNKNOWN:
     default:
-      GOOGLE_LOG(FATAL) << "Unsupported syntax; this generator only supports "
-                           "proto2 and proto3 syntax.";
+      ABSL_LOG(FATAL) << "Unsupported syntax; this generator only supports "
+                         "proto2 and proto3 syntax.";
       return "";
   }
 }
@@ -158,7 +161,7 @@ std::string DefaultValueForField(const FieldDescriptor* field) {
         for (int i = 0; i < default_str.length(); ++i) {
           // Write the hex form of each byte.
           os << "\\x" << std::hex << std::setw(2)
-             << ((uint16)((unsigned char)default_str.at(i)));
+             << ((uint16_t)((unsigned char)default_str.at(i)));
         }
         os << "\".force_encoding(\"ASCII-8BIT\")";
       }
@@ -220,6 +223,11 @@ void GenerateField(const FieldDescriptor* field, io::Printer* printer) {
                      DefaultValueForField(field));
     }
 
+    if (field->has_json_name()) {
+      printer->Print(", json_name: \"$json_name$\"", "json_name",
+                    field->json_name());
+    }
+
     printer->Print("\n");
   }
 }
@@ -242,8 +250,8 @@ void GenerateOneof(const OneofDescriptor* oneof, io::Printer* printer) {
 bool GenerateMessage(const Descriptor* message, io::Printer* printer,
                      std::string* error) {
   if (message->extension_range_count() > 0 || message->extension_count() > 0) {
-    *error = "Extensions are not yet supported for proto2 .proto files.";
-    return false;
+    ABSL_LOG(WARNING)
+        << "Extensions are not yet supported for proto2 .proto files.";
   }
 
   // Don't generate MapEntry messages -- we use the Ruby extension's native
@@ -317,7 +325,7 @@ char UpperChar(char ch) { return IsLower(ch) ? (ch - 'a' + 'A') : ch; }
 // names must be PascalCased.
 //
 //   foo_bar_baz -> FooBarBaz
-std::string PackageToModule(const std::string& name) {
+std::string PackageToModule(absl::string_view name) {
   bool next_upper = true;
   std::string result;
   result.reserve(name.size());
@@ -342,8 +350,8 @@ std::string PackageToModule(const std::string& name) {
 // since there is nothing enforcing this we need to ensure that they are valid
 // Ruby constants.  That mainly means making sure that the first character is
 // an upper-case letter.
-std::string RubifyConstant(const std::string& name) {
-  std::string ret = name;
+std::string RubifyConstant(absl::string_view name) {
+  std::string ret(name);
   if (!ret.empty()) {
     if (IsLower(ret[0])) {
       // If it starts with a lowercase letter, capitalize it.
@@ -354,14 +362,14 @@ std::string RubifyConstant(const std::string& name) {
       // here, e.g. try to strip leading underscores, but this may cause other
       // problems if the user really intended the name. So let's just prepend a
       // well-known suffix.
-      ret = "PB_" + ret;
+      return absl::StrCat("PB_", ret);
     }
   }
 
   return ret;
 }
 
-void GenerateMessageAssignment(const std::string& prefix,
+void GenerateMessageAssignment(absl::string_view prefix,
                                const Descriptor* message,
                                io::Printer* printer) {
   // Don't generate MapEntry messages -- we use the Ruby extension's native
@@ -379,7 +387,8 @@ void GenerateMessageAssignment(const std::string& prefix,
     "lookup(\"$full_name$\").msgclass\n",
     "full_name", message->full_name());
 
-  std::string nested_prefix = prefix + RubifyConstant(message->name()) + "::";
+  std::string nested_prefix =
+      absl::StrCat(prefix, RubifyConstant(message->name()), "::");
   for (int i = 0; i < message->nested_type_count(); i++) {
     GenerateMessageAssignment(nested_prefix, message->nested_type(i), printer);
   }
@@ -388,7 +397,7 @@ void GenerateMessageAssignment(const std::string& prefix,
   }
 }
 
-void GenerateEnumAssignment(const std::string& prefix, const EnumDescriptor* en,
+void GenerateEnumAssignment(absl::string_view prefix, const EnumDescriptor* en,
                             io::Printer* printer) {
   printer->Print(
     "$prefix$$name$ = ",
@@ -417,9 +426,9 @@ int GeneratePackageModules(const FileDescriptor* file, io::Printer* printer) {
     //    -> A.B.C
     if (package_name.find("::") != std::string::npos) {
       need_change_to_module = false;
-    } else {
-      GOOGLE_LOG(WARNING) << "ruby_package option should be in the form of:"
-                          << " 'A::B::C' and not 'A.B.C'";
+    } else if (package_name.find('.') != std::string::npos) {
+      ABSL_LOG(WARNING) << "ruby_package option should be in the form of:"
+                        << " 'A::B::C' and not 'A.B.C'";
     }
   } else {
     package_name = file->package();
@@ -461,97 +470,13 @@ void EndPackageModules(int levels, io::Printer* printer) {
   }
 }
 
-bool UsesTypeFromFile(const Descriptor* message, const FileDescriptor* file,
-                      std::string* error) {
-  for (int i = 0; i < message->field_count(); i++) {
-    const FieldDescriptor* field = message->field(i);
-    if ((field->cpp_type() == FieldDescriptor::CPPTYPE_MESSAGE &&
-         field->message_type()->file() == file) ||
-        (field->type() == FieldDescriptor::TYPE_ENUM &&
-         field->enum_type()->file() == file)) {
-      *error = "proto3 message field " + field->full_name() + " in file " +
-               file->name() + " has a dependency on a type from proto2 file " +
-               file->name() +
-               ".  Ruby doesn't support proto2 yet, so we must fail.";
-      return true;
-    }
-  }
-
-  for (int i = 0; i < message->nested_type_count(); i++) {
-    if (UsesTypeFromFile(message->nested_type(i), file, error)) {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-// Ruby doesn't currently support proto2.  This causes a failure even for proto3
-// files that import proto2.  But in some cases, the proto2 file is only being
-// imported to extend another proto2 message.  The prime example is declaring
-// custom options by extending FileOptions/FieldOptions/etc.
-//
-// If the proto3 messages don't have any proto2 submessages, it is safe to omit
-// the dependency completely.  Users won't be able to use any proto2 extensions,
-// but they already couldn't because proto2 messages aren't supported.
-//
-// If/when we add proto2 support, we should remove this.
-bool MaybeEmitDependency(const FileDescriptor* import,
-                         const FileDescriptor* from,
-                         io::Printer* printer,
-                         std::string* error) {
-  if (from->syntax() == FileDescriptor::SYNTAX_PROTO3 &&
-      import->syntax() == FileDescriptor::SYNTAX_PROTO2) {
-    for (int i = 0; i < from->message_type_count(); i++) {
-      if (UsesTypeFromFile(from->message_type(i), import, error)) {
-        // Error text was already set by UsesTypeFromFile().
-        return false;
-      }
-    }
-
-    // Ok to omit this proto2 dependency -- so we won't print anything.
-    GOOGLE_LOG(WARNING) << "Omitting proto2 dependency '" << import->name()
-                        << "' from proto3 output file '"
-                        << GetOutputFilename(from->name())
-                        << "' because we don't support proto2 and no proto2 "
-                           "types from that file are being used.";
-    return true;
-  } else {
-    printer->Print(
-      "require '$name$'\n", "name", GetRequireName(import->name()));
-    return true;
-  }
-}
-
-bool GenerateFile(const FileDescriptor* file, io::Printer* printer,
-                  std::string* error) {
-  printer->Print(
-    "# Generated by the protocol buffer compiler.  DO NOT EDIT!\n"
-    "# source: $filename$\n"
-    "\n",
-    "filename", file->name());
-
-  printer->Print(
-    "require 'google/protobuf'\n\n");
-
-  for (int i = 0; i < file->dependency_count(); i++) {
-    if (!MaybeEmitDependency(file->dependency(i), file, printer, error)) {
-      return false;
-    }
-  }
-
-  // TODO: Remove this when ruby supports extensions for proto2 syntax.
-  if (file->syntax() == FileDescriptor::SYNTAX_PROTO2 &&
-      file->extension_count() > 0) {
-    *error = "Extensions are not yet supported for proto2 .proto files.";
-    return false;
-  }
-
+bool GenerateDslDescriptor(const FileDescriptor* file, io::Printer* printer,
+                           std::string* error) {
   printer->Print("Google::Protobuf::DescriptorPool.generated_pool.build do\n");
   printer->Indent();
   printer->Print("add_file(\"$filename$\", :syntax => :$syntax$) do\n",
-		 "filename", file->name(), "syntax",
-		 StringifySyntax(file->syntax()));
+                 "filename", file->name(), "syntax",
+                 StringifySyntax(FileDescriptorLegacy(file).syntax()));
   printer->Indent();
   for (int i = 0; i < file->message_type_count(); i++) {
     if (!GenerateMessage(file->message_type(i), printer, error)) {
@@ -566,6 +491,48 @@ bool GenerateFile(const FileDescriptor* file, io::Printer* printer,
   printer->Outdent();
   printer->Print(
     "end\n\n");
+  return true;
+}
+
+bool GenerateBinaryDescriptor(const FileDescriptor* file, io::Printer* printer,
+                              std::string* error) {
+  printer->Print(
+      R"(descriptor_data = File.binread(__FILE__).split("\n__END__\n", 2)[1])");
+  printer->Print(
+      "\nGoogle::Protobuf::DescriptorPool.generated_pool.add_serialized_file("
+      "descriptor_data)\n\n");
+  return true;
+}
+
+bool GenerateFile(const FileDescriptor* file, io::Printer* printer,
+                  std::string* error) {
+  printer->Print(
+    "# Generated by the protocol buffer compiler.  DO NOT EDIT!\n"
+    "# source: $filename$\n"
+    "\n",
+    "filename", file->name());
+
+  printer->Print("require 'google/protobuf'\n\n");
+
+  if (file->dependency_count() != 0) {
+    for (int i = 0; i < file->dependency_count(); i++) {
+      printer->Print("require '$name$'\n", "name", GetRequireName(file->dependency(i)->name()));
+    }
+    printer->Print("\n");
+  }
+
+  // TODO: Remove this when ruby supports extensions.
+  if (file->extension_count() > 0) {
+    ABSL_LOG(WARNING) << "Extensions are not yet supported in Ruby.";
+  }
+
+  bool use_raw_descriptor = file->name() == "google/protobuf/descriptor.proto";
+
+  if (use_raw_descriptor) {
+    GenerateBinaryDescriptor(file, printer, error);
+  } else {
+    GenerateDslDescriptor(file, printer, error);
+  }
 
   int levels = GeneratePackageModules(file, printer);
   for (int i = 0; i < file->message_type_count(); i++) {
@@ -575,6 +542,15 @@ bool GenerateFile(const FileDescriptor* file, io::Printer* printer,
     GenerateEnumAssignment("", file->enum_type(i), printer);
   }
   EndPackageModules(levels, printer);
+
+  if (use_raw_descriptor) {
+    printer->Print("\n__END__\n");
+    FileDescriptorProto file_proto;
+    file->CopyTo(&file_proto);
+    std::string file_data;
+    file_proto.SerializeToString(&file_data);
+    printer->Print("$raw_descriptor$", "raw_descriptor", file_data);
+  }
   return true;
 }
 
@@ -583,9 +559,8 @@ bool Generator::Generate(
     const std::string& parameter,
     GeneratorContext* generator_context,
     std::string* error) const {
-
-  if (file->syntax() != FileDescriptor::SYNTAX_PROTO3 &&
-      file->syntax() != FileDescriptor::SYNTAX_PROTO2) {
+  if (FileDescriptorLegacy(file).syntax() ==
+      FileDescriptorLegacy::Syntax::SYNTAX_UNKNOWN) {
     *error = "Invalid or unsupported proto syntax";
     return false;
   }

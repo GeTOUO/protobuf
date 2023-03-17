@@ -28,17 +28,16 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#include <google/protobuf/util/field_mask_util.h>
+#include "google/protobuf/util/field_mask_util.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <vector>
 
-#include <google/protobuf/field_mask.pb.h>
-#include <google/protobuf/test_util.h>
-#include <google/protobuf/unittest.pb.h>
+#include "google/protobuf/field_mask.pb.h"
 #include <gtest/gtest.h>
-#include <google/protobuf/stubs/logging.h>
-#include <google/protobuf/stubs/common.h>
+#include "google/protobuf/test_util.h"
+#include "google/protobuf/unittest.pb.h"
 
 namespace google {
 namespace protobuf {
@@ -164,7 +163,7 @@ TEST(FieldMaskUtilTest, JsonStringFormat) {
 
 TEST(FieldMaskUtilTest, FromFieldNumbers) {
   FieldMask mask;
-  std::vector<int64> field_numbers = {
+  std::vector<int64_t> field_numbers = {
       TestAllTypes::kOptionalInt64FieldNumber,
       TestAllTypes::kOptionalBoolFieldNumber,
       TestAllTypes::kRepeatedStringFieldNumber,
@@ -226,7 +225,7 @@ TEST(FieldMaskUtilTest, TestGetFieldMaskForAllFields) {
   EXPECT_TRUE(FieldMaskUtil::IsPathInFieldMask("bb", mask));
 
   mask = FieldMaskUtil::GetFieldMaskForAllFields<TestAllTypes>();
-  EXPECT_EQ(75, mask.paths_size());
+  EXPECT_EQ(76, mask.paths_size());
   EXPECT_TRUE(FieldMaskUtil::IsPathInFieldMask("optional_int32", mask));
   EXPECT_TRUE(FieldMaskUtil::IsPathInFieldMask("optional_int64", mask));
   EXPECT_TRUE(FieldMaskUtil::IsPathInFieldMask("optional_uint32", mask));

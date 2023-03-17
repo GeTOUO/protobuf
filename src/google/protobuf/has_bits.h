@@ -31,10 +31,11 @@
 #ifndef GOOGLE_PROTOBUF_HAS_BITS_H__
 #define GOOGLE_PROTOBUF_HAS_BITS_H__
 
-#include <google/protobuf/stubs/common.h>
-#include <google/protobuf/port.h>
+#include "google/protobuf/stubs/common.h"
+#include "google/protobuf/port.h"
 
-#include <google/protobuf/port_def.inc>
+// Must be included last.
+#include "google/protobuf/port_def.inc"
 
 #ifdef SWIG
 #error "You cannot SWIG proto headers"
@@ -47,17 +48,17 @@ namespace internal {
 template <size_t doublewords>
 class HasBits {
  public:
-  constexpr HasBits() PROTOBUF_ALWAYS_INLINE : has_bits_{} {}
+  PROTOBUF_NDEBUG_INLINE constexpr HasBits() : has_bits_{} {}
 
-  void Clear() PROTOBUF_ALWAYS_INLINE {
+  PROTOBUF_NDEBUG_INLINE void Clear() {
     memset(has_bits_, 0, sizeof(has_bits_));
   }
 
-  uint32& operator[](int index) PROTOBUF_ALWAYS_INLINE {
+  PROTOBUF_NDEBUG_INLINE uint32_t& operator[](int index) {
     return has_bits_[index];
   }
 
-  const uint32& operator[](int index) const PROTOBUF_ALWAYS_INLINE {
+  PROTOBUF_NDEBUG_INLINE const uint32_t& operator[](int index) const {
     return has_bits_[index];
   }
 
@@ -76,7 +77,7 @@ class HasBits {
   bool empty() const;
 
  private:
-  uint32 has_bits_[doublewords];
+  uint32_t has_bits_[doublewords];
 };
 
 template <>
@@ -111,6 +112,6 @@ inline bool HasBits<doublewords>::empty() const {
 }  // namespace protobuf
 }  // namespace google
 
-#include <google/protobuf/port_undef.inc>
+#include "google/protobuf/port_undef.inc"
 
 #endif  // GOOGLE_PROTOBUF_HAS_BITS_H__
